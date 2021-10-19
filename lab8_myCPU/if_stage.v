@@ -17,7 +17,17 @@ module if_stage(
     output [31:0] inst_sram_wdata,
     input  [31:0] inst_sram_rdata,
 
-    input  [31:0] ex_entry
+    input  [31:0] ex_entry,
+    input  [31:0] csr_rvalue,
+    input         ds_ertn_flush,
+    input         es_ertn_flush,
+    input         ms_ertn_flush,
+    input         ws_ertn_flush,
+    input         id_ex,
+    input         exe_ex,
+    input         mem_ex,
+    input         wb_ex,
+    input         reg_rlv
 );
 
 reg         fs_valid;
@@ -40,11 +50,16 @@ assign fs_to_ds_bus = {fs_inst ,
 // pre-IF stage
 assign to_fs_valid  = ~reset;
 assign seq_pc       = fs_pc + 3'h4;
-assign nextpc       = br_taken ? br_target : seq_pc; 
+assign nextpc       = br_taken      ? br_target :
+                      ws_ertn_flush ? csr_rvalue:
+                      wb_ex         ? ex_entry  :
+                      //reg_rlv       ? fs_pc     :
+                                      seq_pc; 
 
 // IF stage
 assign fs_ready_go    = 1'b1;
-assign fs_allowin     = !fs_valid || fs_ready_go && ds_allowin;
+assign fs_allowin     = (!fs_valid | fs_ready_go & ds_allowin) 
+                        & !(ds_ertn_flush | es_ertn_flush | ms_ertn_flush | id_ex | exe_ex | mem_ex);
 assign fs_to_ds_valid =  fs_valid && fs_ready_go;
 always @(posedge clk) begin
     if (reset) begin
@@ -53,7 +68,7 @@ always @(posedge clk) begin
     else if (fs_allowin) begin
         fs_valid <= to_fs_valid;
     end
-    else if (br_taken) begin
+    else if (br_taken | ds_ertn_flush | es_ertn_flush | ms_ertn_flush | ws_ertn_flush | id_ex | exe_ex | mem_ex | wb_ex) begin
         fs_valid <= 1'b0;
     end
 

@@ -37,7 +37,7 @@ wire [`MS_TO_WS_BUS_WD -1:0] ms_to_ws_bus;
 wire [`WS_TO_RF_BUS_WD -1:0] ws_to_rf_bus;
 wire [`BR_BUS_WD       -1:0] br_bus;
 wire [`DS_TO_MD_BUS_WD -1:0] ds_to_md_bus;
-wire [`CSR_BUS_WD -1:0] id_to_es_csr_bus;
+wire [`CSR_BUS_WD -1:0] ds_to_es_csr_bus;
 wire [`CSR_BUS_WD -1:0] es_to_ms_csr_bus;
 wire [`CSR_BUS_WD -1:0] ms_to_ws_csr_bus;
 wire [`CSR_BUS_WD -1:0] ws_to_csr_bus;
@@ -47,6 +47,8 @@ wire [7  :0]  hw_int_in;
 wire ipi_int_in;
 wire [31 :0]  ex_entry;
 wire       has_int;
+wire      es_ertn_flush;
+wire      ms_ertn_flush;
 wire      ertn_flush;
 wire     wb_ex;
 wire   [5  :0]  wb_ecode;
@@ -55,7 +57,13 @@ wire   [31 :0]  wb_pc;
 wire   [31 :0]  wb_vaddr;
 
 wire [39:0] es_forward;
+wire [ 9:0] es_csr_forward;
 wire [38:0] ms_forward;
+wire [ 9:0] ms_csr_forward;
+wire        es_csr_op;
+wire        ms_csr_op;
+
+wire reg_rlv;
 
 // IF stage
 if_stage if_stage(
@@ -75,7 +83,17 @@ if_stage if_stage(
     .inst_sram_wdata(inst_sram_wdata),
     .inst_sram_rdata(inst_sram_rdata),
 
-    .ex_entry(ex_entry)
+    .ex_entry(ex_entry),
+    .csr_rvalue(csr_rvalue),
+    .ds_ertn_flush(ds_ertn_flush),
+    .es_ertn_flush(es_ertn_flush),
+    .ms_ertn_flush(ms_ertn_flush),
+    .ws_ertn_flush(ertn_flush),
+    .id_ex(id_ex),
+    .exe_ex(exe_ex),
+    .mem_ex(mem_ex),
+    .wb_ex(wb_ex),
+    .reg_rlv(reg_rlv)
 );
 // ID stage
 id_stage id_stage(
@@ -96,11 +114,19 @@ id_stage id_stage(
     .ws_to_rf_bus   (ws_to_rf_bus   ),
     .ds_to_md_bus   (ds_to_md_bus   ),
     
-    .es_forward(es_forward),
-    .ms_forward(ms_forward),
+    .es_forward     (es_forward     ),
+    .ms_forward     (ms_forward     ),
+    .es_csr_forward (es_csr_forward ),
+    .ms_csr_forward (ms_csr_forward ),
+    .es_csr_reg(es_csr_op),
+    .ms_csr_reg(ms_csr_op),
 
-    .id_to_es_csr_bus(id_to_es_csr_bus),
-    .has_int(has_int)
+    .ds_to_es_csr_bus(ds_to_es_csr_bus),
+    .has_int        (has_int        ),
+    .csr_rvalue     (csr_rvalue     ),
+    .ds_ertn_flush  (ds_ertn_flush  ),
+    .id_ex(id_ex),
+    .reg_rlv(reg_rlv)
 );
 // EXE stage
 exe_stage exe_stage(
@@ -124,8 +150,13 @@ exe_stage exe_stage(
     .data_sram_wdata(data_sram_wdata),
     
     .es_forward(es_forward),
-    .id_to_es_csr_bus(id_to_es_csr_bus),
-    .es_to_ms_csr_bus(es_to_ms_csr_bus)
+    .es_csr_forward(es_csr_forward),
+    .es_csr_reg(es_csr_op),
+
+    .ds_to_es_csr_bus(ds_to_es_csr_bus),
+    .es_to_ms_csr_bus(es_to_ms_csr_bus),
+    .es_ertn_flush(es_ertn_flush),
+    .exe_ex(exe_ex)
 );
 // MEM stage
 mem_stage mem_stage(
@@ -144,9 +175,13 @@ mem_stage mem_stage(
     .data_sram_rdata(data_sram_rdata),
     
     .ms_forward(ms_forward),
+    .ms_csr_forward(ms_csr_forward),
+    .ms_csr_reg(ms_csr_op),
 
     .es_to_ms_csr_bus(es_to_ms_csr_bus),
-    .ms_to_ws_csr_bus(ms_to_ws_csr_bus)
+    .ms_to_ws_csr_bus(ms_to_ws_csr_bus),
+    .ms_ertn_flush(ms_ertn_flush),
+    .mem_ex(mem_ex)
 );
 // WB stage
 wb_stage wb_stage(
@@ -167,7 +202,7 @@ wb_stage wb_stage(
 
     .hw_int_in(hw_int_in),
     .ipi_int_in(ipi_int_in),
-    .ertn_flush(ertn_flush),
+    .wb_ertn_flush(ertn_flush),
     .wb_ex(wb_ex),
     .wb_ecode(wb_ecode),
     .wb_esubcode(wb_esubcode),
@@ -187,7 +222,7 @@ csrfile u_csrfile(
     .ipi_int_in(ipi_int_in),                //核间中断输入引脚
     .ex_entry(ex_entry),                    //送往预取指 （pre-IF）流水级的异常处理入口地址
     .has_int(has_int),                      //送往译码流水级的中断有效信号
-    .ertn_flush(ertn_flush),                //来自写回流水级的 ertn 指令执行的有效信号
+    .ertn_flush(ertn_flush),
     .wb_ex(wb_ex),                          //来自写回流水级的异常处理触发信号
     .wb_ecode(wb_ecode),
     .wb_esubcode(wb_esubcode),

@@ -36,41 +36,41 @@ wire   [31 :0]  csr_wmask;
 wire   [31 :0]  csr_wvalue;
 
 assign csr_re = 1'b1;
-assign {none,             //74:74
+assign {none,               //74:74
         csr_num,            //73:65
         csr_we,             //64:64
         csr_wmask,          //63:32
         csr_wvalue          //31:0
         } = ws_to_csr_bus;
 
-reg [1  :0] csr_crmd_plv;
-reg csr_crmd_ie;
-reg [1  :0] csr_prmd_pplv;
-reg csr_prmd_pie;
-reg [12 :0] csr_ecfg_lie;
-reg [12 :0] csr_estat_is;
-reg [5  :0] csr_estat_ecode;
-reg [8  :0] csr_estat_esubcode;
-reg [31 :0] csr_era_pc;
-reg [31 :0] csr_badv_vaddr;
+reg  [1  :0] csr_crmd_plv;
+reg          csr_crmd_ie;
+reg  [1  :0] csr_prmd_pplv;
+reg          csr_prmd_pie;
+reg  [12 :0] csr_ecfg_lie;
+reg  [12 :0] csr_estat_is;
+reg  [5  :0] csr_estat_ecode;
+reg  [8  :0] csr_estat_esubcode;
+reg  [31 :0] csr_era_pc;
+reg  [31 :0] csr_badv_vaddr;
 wire         wb_ex_addr_err;
-reg [25 :0] csr_eentry_va;
-reg [31 :0] csr_save0_data;
-reg [31 :0] csr_save1_data;
-reg [31 :0] csr_save2_data;
-reg [31 :0] csr_save3_data;
-reg [31 :0] csr_tid_tid;
-reg csr_tcfg_en;
-reg csr_tcfg_periodic;
-reg [29:0] csr_tcfg_initval; 
-wire [31:0] tcfg_next_value; 
-wire [31:0] csr_tval; 
-reg [31:0] timer_cnt;
-wire csr_ticlr_clr;
-reg [31 :0] csr_tlbrentry;
-reg [25 :0] csr_tlbrentry_pa;
+reg  [25 :0] csr_eentry_va;
+reg  [31 :0] csr_save0_data;
+reg  [31 :0] csr_save1_data;
+reg  [31 :0] csr_save2_data;
+reg  [31 :0] csr_save3_data;
+reg  [31 :0] csr_tid_tid;
+reg          csr_tcfg_en;
+reg          csr_tcfg_periodic;
+reg  [29 :0] csr_tcfg_initval; 
+wire [31 :0] tcfg_next_value; 
+wire [31 :0] csr_tval; 
+reg  [31 :0] timer_cnt;
+wire         csr_ticlr_clr;
+reg  [31 :0] csr_tlbrentry;
+reg  [25 :0] csr_tlbrentry_pa;
 
-assign has_int = ((csr_estat_is[11:0] & csr_ecfg_lie[11:0]) != 12'b0) && (csr_crmd_ie == 1'b1);
+assign has_int  = ((csr_estat_is[11:0] & csr_ecfg_lie[11:0]) != 12'b0) && (csr_crmd_ie == 1'b1);
 assign ex_entry = (wb_ecode==`ECODE_TLBR)? {csr_tlbrentry_pa, 6'b0} : {csr_eentry_va, 6'b0};
 
 //1.CRMD µÄ PLV Óò
@@ -233,30 +233,28 @@ assign csr_ticlr_clr = 1'b0;
 end*/
 
 //15.CSR µÄ¶Á³öÂß¼­
-wire [31:0] csr_crmd_rvalue = {29'b1, csr_crmd_ie, csr_crmd_plv}; 
-wire [31:0] csr_prmd_rvalue = {29'b0, csr_prmd_pie, csr_prmd_pplv}; 
-wire [31:0] csr_ecfg_rvalue = {19'b0, csr_ecfg_lie};
-wire [31:0] csr_estat_rvalue = {1'b0, csr_estat_esubcode, csr_estat_ecode, 3'b0, csr_estat_is};
-wire [31:0] csr_era_rvalue = csr_era_pc;
+wire [31:0] csr_crmd_rvalue   = {29'b1, csr_crmd_ie, csr_crmd_plv}; 
+wire [31:0] csr_prmd_rvalue   = {29'b0, csr_prmd_pie, csr_prmd_pplv}; 
+wire [31:0] csr_ecfg_rvalue   = {19'b0, csr_ecfg_lie};
+wire [31:0] csr_estat_rvalue  = {1'b0, csr_estat_esubcode, csr_estat_ecode, 3'b0, csr_estat_is};
+wire [31:0] csr_era_rvalue    = csr_era_pc;
 wire [31:0] csr_eentry_rvalue = {csr_eentry_va, 6'b0};
-wire [31:0] csr_save0_rvalue = csr_save0_data;
-wire [31:0] csr_save1_rvalue = csr_save1_data;
-wire [31:0] csr_save2_rvalue = csr_save2_data;
-wire [31:0] csr_save3_rvalue = csr_save3_data;
-wire [31:0] csr_ticlr_rvalue = 32'b0;
+wire [31:0] csr_save0_rvalue  = csr_save0_data;
+wire [31:0] csr_save1_rvalue  = csr_save1_data;
+wire [31:0] csr_save2_rvalue  = csr_save2_data;
+wire [31:0] csr_save3_rvalue  = csr_save3_data;
+wire [31:0] csr_ticlr_rvalue  = 32'b0;
 
-assign csr_rvalue = {32{csr_num==`CSR_CRMD}} & csr_crmd_rvalue 
-                    | {32{csr_num==`CSR_PRMD}} & csr_prmd_rvalue 
-                    | {32{csr_num==`CSR_ECFG}} & csr_ecfg_rvalue
-                    | {32{csr_num==`CSR_ESTAT}} & csr_estat_rvalue
-                    | {32{csr_num==`CSR_ERA}} & csr_era_rvalue
+assign csr_rvalue = {32{csr_num==`CSR_CRMD}}     & csr_crmd_rvalue 
+                    | {32{csr_num==`CSR_PRMD}}   & csr_prmd_rvalue 
+                    | {32{csr_num==`CSR_ECFG}}   & csr_ecfg_rvalue
+                    | {32{csr_num==`CSR_ESTAT}}  & csr_estat_rvalue
+                    | {32{csr_num==`CSR_ERA}}    & csr_era_rvalue
                     | {32{csr_num==`CSR_EENTRY}} & csr_eentry_rvalue
-                    | {32{csr_num==`CSR_SAVE0}} & csr_save0_rvalue
-                    | {32{csr_num==`CSR_SAVE1}} & csr_save1_rvalue
-                    | {32{csr_num==`CSR_SAVE2}} & csr_save2_rvalue
-                    | {32{csr_num==`CSR_SAVE3}} & csr_save3_rvalue
+                    | {32{csr_num==`CSR_SAVE0}}  & csr_save0_rvalue
+                    | {32{csr_num==`CSR_SAVE1}}  & csr_save1_rvalue
+                    | {32{csr_num==`CSR_SAVE2}}  & csr_save2_rvalue
+                    | {32{csr_num==`CSR_SAVE3}}  & csr_save3_rvalue
                     ;
-
-
-
+                    
 endmodule

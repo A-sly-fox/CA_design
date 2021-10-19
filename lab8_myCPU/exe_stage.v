@@ -21,9 +21,13 @@ module exe_stage(
     output [31:0] data_sram_wdata,
     
     output [39:0] es_forward,
+    output [ 9:0] es_csr_forward,
+    output        es_csr_reg,
 
-    input [`CSR_BUS_WD -1:0] id_to_es_csr_bus,
-    output [`CSR_BUS_WD -1:0] es_to_ms_csr_bus
+    input  [`CSR_BUS_WD -1:0] ds_to_es_csr_bus,
+    output [`CSR_BUS_WD -1:0] es_to_ms_csr_bus,
+    output es_ertn_flush,
+    output exe_ex
 );
 
 reg         es_valid      ;
@@ -42,16 +46,11 @@ wire [31:0] es_rkd_value  ;
 wire [31:0] es_pc         ;
 
 wire [ 4:0] es_res_from_mem;
-/*
-*
-*
-*
-*/
-reg [`CSR_BUS_WD -1:0] id_to_es_csr_bus_r;
-always @(posedge clk) begin
-    id_to_es_csr_bus_r <= id_to_es_csr_bus;
-end
-assign es_to_ms_csr_bus = id_to_es_csr_bus_r;
+
+reg [`CSR_BUS_WD -1:0] ds_to_es_csr_bus_r;
+assign es_to_ms_csr_bus = ds_to_es_csr_bus_r;
+assign es_ertn_flush    = es_valid & ds_to_es_csr_bus_r[`CSR_BUS_ERTN];
+assign exe_ex           = es_valid & ds_to_es_csr_bus_r[`CSR_BUS_EX];
 
 assign {es_alu_op      ,  //155:144
         es_res_from_mem,  //143:139
@@ -121,6 +120,14 @@ always @(posedge clk) begin
     if (ds_to_es_valid && es_allowin) begin
         ds_to_es_bus_r <= ds_to_es_bus;
     end
+    
+    if (ds_to_es_valid && es_allowin) begin
+        ds_to_md_bus_r <= ds_to_md_bus;
+    end  
+    
+    if(ds_to_es_valid && es_allowin) begin
+        ds_to_es_csr_bus_r <= ds_to_es_csr_bus;
+    end  
 end
 
 assign es_alu_src1 = es_src1_is_pc  ? es_pc[31:0] : 
@@ -178,10 +185,10 @@ wire div_res_unsigned;
 assign div_res_signed   =   div_inst_r[3] | div_inst_r[2];
 assign div_res_unsigned =   div_inst_r[1] | div_inst_r[0];
 
-assign div_result = div_inst_r[3] ? div_out1[63:32] :
-                    div_inst_r[2] ? div_out1[31: 0] :
-                    div_inst_r[1] ? div_out2[63:32] :
-                /*div_inst_r[0]*/   div_out2[31: 0] ;
+assign div_result       = div_inst_r[3] ? div_out1[63:32] :
+                          div_inst_r[2] ? div_out1[31: 0] :
+                          div_inst_r[1] ? div_out2[63:32] :
+                      /*div_inst_r[0]*/   div_out2[31: 0] ;
 
 reg [2:0] div_status;
 
@@ -203,14 +210,8 @@ end
 assign dv_valid = div_status[1];
 assign dd_valid = div_status[1];
 
-always @(posedge clk) begin    
-    if (ds_to_es_valid && es_allowin) begin
-        ds_to_md_bus_r <= ds_to_md_bus;
-    end    
-end
-
-assign div_valid =(div_res_signed   & div_valid1) |
-                  (div_res_unsigned & div_valid2);
+assign div_valid = (div_res_signed   & div_valid1) |
+                   (div_res_unsigned & div_valid2);
 
 div1 div1(
     .aclk(clk),
@@ -263,5 +264,9 @@ assign es_forward =    { es_valid       ,  //39:39
                          es_dest        ,  //36:32
                          es_op_result     //31:0
                         };
+assign es_csr_forward = {   ds_to_es_csr_bus_r[`CSR_BUS_WE],     // csr_we
+                            ds_to_es_csr_bus_r[`CSR_BUS_NUM]// csr_num
+                         };
+assign es_csr_reg = ds_to_es_csr_bus_r[`CSR_BUS_OP] & es_gr_we;
 
 endmodule

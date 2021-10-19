@@ -8,7 +8,13 @@
     `define MS_TO_WS_BUS_WD 70
     `define WS_TO_RF_BUS_WD 38
     `define DS_TO_MD_BUS_WD 71
-    `define CSR_BUS_WD 75
+    `define CSR_BUS_WD 92
+    
+    `define CSR_BUS_ERTN    91   
+    `define CSR_BUS_EX      90
+    `define CSR_BUS_OP      74
+    `define CSR_BUS_NUM     73:65
+    `define CSR_BUS_WE      64
 
     `define CSR_CRMD        9'h0
     `define CSR_PRMD        9'h1
