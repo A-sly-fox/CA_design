@@ -30,11 +30,27 @@ module cache(
     input           wr_rdy
 );
 
-wire        look_enable ;
+wire        to_lookup ;
 wire        enable = 1'b1;
 wire [ 7:0] cache_addr;
 
-// ********************RAM IP核的例化******************** //
+reg [7:0] rand;
+wire      way_rand = rand[0];
+
+wire way0_hit ;
+wire way1_hit ;
+wire cache_hit;
+
+wire [31:0] way0_word;
+wire [31:0] way1_word;
+
+reg  [127:0] refill_data;
+reg          refill_end ;
+wire [ 31:0] refill_word;
+
+wire [127:0] write_back_data;
+
+// ********************RAM IP******************** //
 // Tag_and_V
 wire tagv_0_we;
 wire [20:0] tagv_0_wvalue;
@@ -169,29 +185,34 @@ bank_RAM bank_1_3
 
 //Dirty
 wire [7:0] d_0_addr_7;
-wire [7:0] d_1_addr_7;
 wire d_0_we;
+wire d_0_in;
 wire d_0_out;
+reg [255:0] dirty_0;
+always @(posedge clk_g) begin
+    if(~resetn) begin
+        dirty_0 <= 256'b0;
+    end
+    else if(d_0_we) begin
+        dirty_0[d_0_addr_7] <= d_0_in;
+    end
+end
+assign d_0_out = dirty_0[d_0_addr_7];
+
+wire [7:0] d_1_addr_7;
 wire d_1_we;
+wire d_1_in;
 wire d_1_out;
-
-Dirty_RAM d_0
-(
-    .clka (clk_g),
-    .wea  (d_0_we ), 
-    .addra(d_0_addr_7),
-    .dina (d_0_we  ),
-    .douta(d_0_out )
-);
-
-Dirty_RAM d_1
-(
-    .clka (clk_g),
-    .wea  (d_1_we ), 
-    .addra(d_1_addr_7),
-    .dina (d_1_we  ),
-    .douta(d_1_out )
-);
+reg [255:0] dirty_1;
+always @(posedge clk_g) begin
+    if(~resetn) begin
+        dirty_1 <= 256'b0;
+    end
+    else if(d_1_we) begin
+        dirty_1[d_1_addr_7] <= d_1_in;
+    end
+end
+assign d_1_out = dirty_1[d_1_addr_7];
 
 reg [68:0] request_buffer;
 wire        op_request     = request_buffer[68];
@@ -215,8 +236,10 @@ wire [ 19:0] tag_miss   = miss_buffer[148:129];
 wire         v_miss     = miss_buffer[128];
 wire [127:0] data_miss  = miss_buffer[127:0];
 
-// ********************状态机部分******************** //
-//主状态机
+// ********************State Machine******************** //
+//Main State Machine
+reg [4:0] State;
+reg [4:0] State_next;
 localparam IDLE     = 5'b00001;
 localparam LOOKUP   = 5'b00010;
 localparam MISS     = 5'b00100;
@@ -228,8 +251,6 @@ wire state_miss    = State == MISS;
 wire state_replace = State == REPLACE;
 wire state_refill  = State == REFILL;
 
-reg [4:0] State;
-reg [4:0] State_next;
 always @(posedge clk_g) begin
     if(~resetn)
         State <= IDLE;
@@ -240,19 +261,21 @@ end
 always @(*) begin
     case (State)
         IDLE:begin
-            if (look_enable)       
+            if (to_lookup)       
                 State_next = LOOKUP;
             else
                 State_next = IDLE;
         end
 
         LOOKUP:begin
-            if (look_enable & cache_hit)
+            if (to_lookup & cache_hit)
                 State_next = LOOKUP;
-            else if (~look_enable & cache_hit)
+            else if (~to_lookup & cache_hit)
                 State_next = IDLE;
             else if (~cache_hit)
                 State_next = MISS;
+            else 
+                State_next = LOOKUP;
         end
 
         MISS:begin
@@ -280,14 +303,14 @@ always @(*) begin
     endcase
 end
 
-//Write Buffer状态机
+//Write State Machine
+reg [1:0] State_wr;
+reg [1:0] State_next_wr;
 localparam IDLE_W = 2'b01;
 localparam WRITE  = 2'b10;
 wire state_idle_w = State_wr == IDLE_W;
 wire state_write  = State_wr == WRITE;
 
-reg [1:0] State_wr;
-reg [1:0] State_next_wr;
 always @(posedge clk_g) begin
     if(~resetn)
         State_wr <= IDLE_W;
@@ -315,13 +338,6 @@ always @(*) begin
     endcase
 end
 
-wire [31:0] way0_word;
-wire [31:0] way1_word;
-
-reg [127:0] refill_data;
-reg         refill_end ;
-wire[ 31:0] refill_word;
-
 wire offset_request_00 = offset_request[3:2] == 2'b00;
 wire offset_request_01 = offset_request[3:2] == 2'b01;
 wire offset_request_10 = offset_request[3:2] == 2'b10;
@@ -335,15 +351,15 @@ wire offset_write_11   = offset_write[3:2] == 2'b11;
 always @(posedge clk_g) begin
     if (~resetn) 
         request_buffer <= 69'b0;
-    else if (look_enable) begin
+    else if (to_lookup) begin
         request_buffer <= {op, index, tag, offset, wstrb, wdata}; 
     end
 end 
 
 // Tag Compare
-wire way0_hit = tagv_0_rvalue[0] && (tagv_0_rvalue[20:1] == tag_request) && state_lookup;
-wire way1_hit = tagv_1_rvalue[0] && (tagv_1_rvalue[20:1] == tag_request) && state_lookup;
-wire cache_hit = way0_hit | way1_hit;
+assign way0_hit = tagv_0_rvalue[0] && (tagv_0_rvalue[20:1] == tag_request) && state_lookup;
+assign way1_hit = tagv_1_rvalue[0] && (tagv_1_rvalue[20:1] == tag_request) && state_lookup;
+assign cache_hit = way0_hit | way1_hit;
 
 // Data Select
 assign way0_word = {32{offset_request_00}} & bank_0_0_rvalue 
@@ -364,8 +380,8 @@ always @(posedge clk_g) begin
         miss_buffer[150]     <= way_rand;
         miss_buffer[149]     <= way_rand ? d_1_out : d_0_out;
         miss_buffer[148:128] <= way_rand ? tagv_1_rvalue : tagv_0_rvalue;
-        miss_buffer[127:  0] <= way_rand ? {bank_1_0_rvalue, bank_1_1_rvalue, bank_1_2_rvalue, bank_1_3_rvalue}
-                                         : {bank_0_0_rvalue, bank_0_1_rvalue, bank_0_2_rvalue, bank_0_3_rvalue};
+        miss_buffer[127:  0] <= way_rand ? {bank_1_3_rvalue, bank_1_2_rvalue, bank_1_1_rvalue, bank_1_0_rvalue}
+                                         : {bank_0_3_rvalue, bank_0_2_rvalue, bank_0_1_rvalue, bank_0_0_rvalue};
     end
     else if (state_idle) begin
         miss_buffer <= 151'b0;
@@ -382,9 +398,7 @@ always @(posedge clk_g) begin
    end 
 end
 
-// LFSR线性反馈移位寄存器
-reg [7:0] rand;
-wire      way_rand = rand[0];
+// LFSR
 always@(posedge clk_g) begin   
     if(~resetn)
         rand <= 4'b0001;
@@ -396,46 +410,60 @@ always@(posedge clk_g) begin
     end
 end
 
-assign look_enable = valid & (state_idle | (state_lookup  & cache_hit & ~op_request) 
+assign to_lookup = valid & (state_idle | (state_lookup  & cache_hit & ~op_request) 
                            | (state_lookup && (cache_hit & op_request) && (index_request != index))
                            | (state_write && !((offset_write[3:2] == offset[3:2]) && (index_request == index))));
 assign cache_addr = state_write ? index_write  :
-                    look_enable ? index        :
+                      to_lookup ? index        :
                                   index_request;
 
-assign bank_0_0_we = (state_write & ~way_write & offset_write_00) ? wstrb_write :
-                                         (refill_end & ~way_miss) ? 4'b1111     :
-                                                                    4'b0        ;
-assign bank_0_1_we = (state_write & ~way_write & offset_write_01) ? wstrb_write :
-                                         (refill_end & ~way_miss) ? 4'b1111     :
-                                                                    4'b0        ;
-assign bank_0_2_we = (state_write & ~way_write & offset_write_10) ? wstrb_write :
-                                         (refill_end & ~way_miss) ? 4'b1111     :
-                                                                    4'b0        ;
-assign bank_0_3_we = (state_write & ~way_write & offset_write_11) ? wstrb_write :
-                                         (refill_end & ~way_miss) ? 4'b1111     :
-                                                                    4'b0        ;
-assign bank_1_0_we = (state_write & way_write & offset_write_00) ? wstrb_write  :
-                                         (refill_end & way_miss) ? 4'b1111      :
-                                                                   4'b0         ;
-assign bank_1_1_we = (state_write & way_write & offset_write_01) ? wstrb_write  :
-                                         (refill_end & way_miss) ? 4'b1111      :
-                                                                   4'b0         ;
-assign bank_1_2_we = (state_write & way_write & offset_write_10) ? wstrb_write  :
-                                         (refill_end & way_miss) ? 4'b1111      :
-                                                                   4'b0         ;
-assign bank_1_3_we = (state_write & way_write & offset_write_11) ? wstrb_write  :
-                                         (refill_end & way_miss) ? 4'b1111      :
-                                                                   4'b0         ;
+assign bank_0_0_we =               (state_write & ~way_write & offset_write_00) ? wstrb_write  :
+                     (refill_end & ~way_miss &  op_request & offset_request_00) ? wstrb_request:
+                                                       (refill_end & ~way_miss) ? 4'b1111      :
+                                                                                  4'b0         ;
+assign bank_0_1_we =               (state_write & ~way_write & offset_write_01) ? wstrb_write  :
+                     (refill_end & ~way_miss &  op_request & offset_request_01) ? wstrb_request:
+                                                       (refill_end & ~way_miss) ? 4'b1111      :
+                                                                                  4'b0         ;
+assign bank_0_2_we =               (state_write & ~way_write & offset_write_10) ? wstrb_write  :
+                     (refill_end & ~way_miss &  op_request & offset_request_10) ? wstrb_request:
+                                                       (refill_end & ~way_miss) ? 4'b1111      :
+                                                                                  4'b0         ;
+assign bank_0_3_we =               (state_write & ~way_write & offset_write_11) ? wstrb_write  :
+                     (refill_end & ~way_miss &  op_request & offset_request_11) ? wstrb_request:
+                                                       (refill_end & ~way_miss) ? 4'b1111      :
+                                                                                  4'b0         ;
+assign bank_1_0_we =               (state_write & way_write & offset_write_00) ? wstrb_write  :
+                     (refill_end & way_miss &  op_request & offset_request_00) ? wstrb_request:
+                                                       (refill_end & way_miss) ? 4'b1111      :
+                                                                                 4'b0         ;
+assign bank_1_1_we =               (state_write & way_write & offset_write_01) ? wstrb_write  :
+                     (refill_end & way_miss &  op_request & offset_request_01) ? wstrb_request:
+                                                       (refill_end & way_miss) ? 4'b1111      :
+                                                                                 4'b0         ;
+assign bank_1_2_we =               (state_write & way_write & offset_write_10) ? wstrb_write  :
+                     (refill_end & way_miss &  op_request & offset_request_10) ? wstrb_request:
+                                                       (refill_end & way_miss) ? 4'b1111      :
+                                                                                 4'b0         ;
+assign bank_1_3_we =               (state_write & way_write & offset_write_11) ? wstrb_write  :
+                     (refill_end & way_miss &  op_request & offset_request_11) ? wstrb_request:
+                                                       (refill_end & way_miss) ? 4'b1111      :
+                                                                                 4'b0         ;
 
-assign bank_0_0_wvalue = ~way_miss ? refill_data[31:0]   : wdata_write;
-assign bank_0_1_wvalue = ~way_miss ? refill_data[63:32]  : wdata_write;
-assign bank_0_2_wvalue = ~way_miss ? refill_data[95:64]  : wdata_write;
-assign bank_0_3_wvalue = ~way_miss ? refill_data[127:96] : wdata_write;
-assign bank_1_0_wvalue =  way_miss ? refill_data[31:0]   : wdata_write;
-assign bank_1_1_wvalue =  way_miss ? refill_data[63:32]  : wdata_write;
-assign bank_1_2_wvalue =  way_miss ? refill_data[95:64]  : wdata_write;
-assign bank_1_3_wvalue =  way_miss ? refill_data[127:96] : wdata_write;
+assign write_back_data = offset_request_00 ? {refill_data[127:32],wdata_request}                   :
+                         offset_request_01 ? {refill_data[127:64],wdata_request,refill_data[31:0]} :
+                         offset_request_10 ? {refill_data[127:96],wdata_request,refill_data[63:0]} :
+                         offset_request_11 ? {wdata_request,refill_data[95:0]}                     : 
+                                              128'b0                                               ;
+
+assign bank_0_0_wvalue = (~way_miss & ~state_write) ? write_back_data[31:0]   : wdata_write;
+assign bank_0_1_wvalue = (~way_miss & ~state_write) ? write_back_data[63:32]  : wdata_write;
+assign bank_0_2_wvalue = (~way_miss & ~state_write) ? write_back_data[95:64]  : wdata_write;
+assign bank_0_3_wvalue = (~way_miss & ~state_write) ? write_back_data[127:96] : wdata_write;
+assign bank_1_0_wvalue = ( way_miss & ~state_write) ? write_back_data[31:0]   : wdata_write;
+assign bank_1_1_wvalue = ( way_miss & ~state_write) ? write_back_data[63:32]  : wdata_write;
+assign bank_1_2_wvalue = ( way_miss & ~state_write) ? write_back_data[95:64]  : wdata_write;
+assign bank_1_3_wvalue = ( way_miss & ~state_write) ? write_back_data[127:96] : wdata_write;
 
 assign d_0_we = (state_write & ~way_write) | (refill_end & ~way_miss);
 assign d_1_we = (state_write &  way_write) | (refill_end &  way_miss);
@@ -486,8 +514,8 @@ assign refill_word = ({32{offset_request_00}} & refill_data[ 31: 0])
                    | ({32{offset_request_10}} & refill_data[ 95:64])
                    | ({32{offset_request_11}} & refill_data[127:96]);
 
-// 端口的设计
-assign addr_ok = look_enable;
+// Port
+assign addr_ok = to_lookup;
 assign data_ok = state_lookup & cache_hit | refill_end;
 assign rdata = {32{way0_hit}}   & way0_word
              | {32{way1_hit}}   & way1_word
@@ -512,5 +540,8 @@ assign wr_data = data_miss;
 assign rd_req  = state_replace;
 assign rd_type = 3'b100;
 assign rd_addr = {tag_request, index_request, count, 2'b0};
+
+assign d_0_in = state_write ? 1'b1 : op_request;
+assign d_1_in = state_write ? 1'b1 : op_request;
 
 endmodule
